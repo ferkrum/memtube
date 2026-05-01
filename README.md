@@ -1,4 +1,4 @@
-# YouTube Uploader
+# memTube
 
 This project scans one or more folders of images and movies, reads metadata from all supported media files, groups everything by capture day, infers a daily place title from GPS data, and exports one merged movie per day into an `export_to_youtube` folder.
 
@@ -20,11 +20,27 @@ This project was tested with:
 Clone or download this project, then install dependencies:
 
 ```bash
-cd /path/to/youtube-uploader
+cd /path/to/memtube
 npm install
 ```
 
 The project uses bundled `ffmpeg-static` and `ffprobe-static` binaries, so you do not need to install FFmpeg separately.
+
+## Before Publishing
+
+If you publish this project to GitHub, do not commit local OAuth files or generated media exports.
+
+These files are already ignored by `.gitignore`:
+
+- `secrets/`
+- `client_secret.json`
+- `.youtube-upload-token.json`
+- `node_modules/`
+- `tmp/`
+- `export_to_youtube/`
+- `input_folder_test/`
+
+If your Google OAuth client secret was ever exposed, rotate it in Google Cloud before using it again.
 
 ## YouTube Setup
 
@@ -37,9 +53,9 @@ High-level steps:
 3. Configure the OAuth consent screen.
 4. Create an OAuth client for a desktop application.
 5. Download the OAuth credentials JSON file.
-6. Save it in this project as `client_secret.json`, or pass a custom path with `--youtube-credentials=/path/to/client_secret.json`.
+6. Save it locally as `secrets/client_secret.json`, or pass a custom path with `--youtube-credentials=/path/to/client_secret.json`.
 
-On the first upload run, the app opens the Google authorization page in your browser and stores the resulting OAuth token locally in `.youtube-upload-token.json`.
+On the first upload run, the app opens the Google authorization page in your browser and stores the resulting OAuth token locally in `secrets/.youtube-upload-token.json`.
 
 ## What it does
 
@@ -54,7 +70,7 @@ On the first upload run, the app opens the Google authorization page in your bro
 ## Usage
 
 ```bash
-cd /path/to/youtube-uploader
+cd /path/to/memtube
 npm start -- "/path/to/folder-one" "/path/to/folder-two"
 ```
 
@@ -87,7 +103,7 @@ To upload generated exports to YouTube as part of the same run:
 ```bash
 node src/index.js "/path/to/folder" \
   --youtube-upload \
-  --youtube-credentials=./client_secret.json \
+  --youtube-credentials=./secrets/client_secret.json \
   --youtube-privacy=private \
   --youtube-playlist-id=PLxxxxxxxxxxxxxxxx
 ```
@@ -116,7 +132,7 @@ To rebuild YouTube descriptions and chapters for already uploaded videos without
 node src/index.js "/path/to/folder" \
   --timeframe="2025-07-19; 2025-08-04" \
   --youtube-rebuild-descriptions \
-  --youtube-credentials=./client_secret.json
+  --youtube-credentials=./secrets/client_secret.json
 ```
 
 ## Output

@@ -17,7 +17,7 @@ async function main() {
   const cli = parseCli(process.argv.slice(2));
   const inputFolders = cli.inputFolders;
   if (inputFolders.length === 0) {
-    throw new Error("Pass one or more folders: youtube-uploader <folder> <folder> ...");
+    throw new Error("Pass one or more folders: memtube <folder> <folder> ...");
   }
 
   const resolvedFolders = inputFolders.map((folder) => path.resolve(folder));
@@ -254,8 +254,8 @@ function parseCli(argv) {
     youtubeDescriptionPrefix: "",
     youtubeNotifySubscribers: false,
     youtubeMadeForKids: false,
-    youtubeCredentialsPath: path.resolve(process.cwd(), "client_secret.json"),
-    youtubeTokenPath: path.resolve(process.cwd(), ".youtube-upload-token.json"),
+    youtubeCredentialsPath: path.resolve(process.cwd(), "secrets", "client_secret.json"),
+    youtubeTokenPath: path.resolve(process.cwd(), "secrets", ".youtube-upload-token.json"),
     timeframe: null,
     youtubeRebuildDescriptions: false,
   };

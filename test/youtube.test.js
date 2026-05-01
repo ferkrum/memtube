@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const path = require("node:path");
 
 const { buildSnippetForTest } = require("../src/youtube");
 
@@ -42,7 +43,7 @@ test("builds a valid YouTube snippet with title, tags and description", () => {
 test("private should remain the default upload visibility", async () => {
   const source = await import("node:fs/promises");
   const contents = await source.readFile(
-    "/Users/ferkrum/Documents/codex/youtube-uploader/src/index.js",
+    path.resolve(__dirname, "../src/index.js"),
     "utf8"
   );
 
@@ -52,7 +53,7 @@ test("private should remain the default upload visibility", async () => {
 test("videos should default to not made for kids", async () => {
   const source = await import("node:fs/promises");
   const contents = await source.readFile(
-    "/Users/ferkrum/Documents/codex/youtube-uploader/src/index.js",
+    path.resolve(__dirname, "../src/index.js"),
     "utf8"
   );
 
@@ -62,7 +63,7 @@ test("videos should default to not made for kids", async () => {
 test("description rebuild flag should be available in the CLI", async () => {
   const source = await import("node:fs/promises");
   const contents = await source.readFile(
-    "/Users/ferkrum/Documents/codex/youtube-uploader/src/index.js",
+    path.resolve(__dirname, "../src/index.js"),
     "utf8"
   );
 
@@ -72,7 +73,7 @@ test("description rebuild flag should be available in the CLI", async () => {
 test("delete-after-upload flag should be available in the CLI", async () => {
   const source = await import("node:fs/promises");
   const contents = await source.readFile(
-    "/Users/ferkrum/Documents/codex/youtube-uploader/src/index.js",
+    path.resolve(__dirname, "../src/index.js"),
     "utf8"
   );
 

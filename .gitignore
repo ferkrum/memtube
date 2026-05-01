@@ -2,8 +2,14 @@ node_modules/
 
 .DS_Store
 
+secrets/
 client_secret.json
 .youtube-upload-token.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
 
 tmp/
 

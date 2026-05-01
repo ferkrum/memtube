@@ -39,7 +39,7 @@ const REPORT_FILE_NAME = "export-report.json";
 const MIN_VIDEO_DURATION_SECONDS = 2;
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const USER_AGENT = "youtube-uploader/1.0 (+https://openai.com)";
+const USER_AGENT = "memtube/1.0 (+https://openai.com)";
 
 function isSupportedMedia(filePath) {
   const extension = path.extname(filePath).toLowerCase();

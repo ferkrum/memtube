@@ -1,17 +1,25 @@
 {
-  "name": "youtube-uploader",
+  "name": "memtube",
   "version": "1.0.0",
-  "description": "CLI app that groups media by day and exports travel-ready merged videos.",
+  "description": "CLI app that groups travel media by day, builds merged videos, and uploads them to YouTube.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test"
   },
   "bin": {
-    "youtube-uploader": "./src/index.js"
+    "memtube": "./src/index.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "youtube",
+    "video",
+    "travel",
+    "media",
+    "ffmpeg",
+    "exif",
+    "cli"
+  ],
+  "author": "Fernando Krum",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
