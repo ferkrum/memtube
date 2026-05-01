@@ -80,3 +80,17 @@ test("delete-after-upload flag should be available in the CLI", async () => {
   assert.match(contents, /--youtube-delete-after-upload/);
   assert.match(contents, /youtubeDeleteAfterUpload:\s*false/);
 });
+
+test("create-playlist flags should be available in the CLI", async () => {
+  const source = await import("node:fs/promises");
+  const contents = await source.readFile(
+    path.resolve(__dirname, "../src/index.js"),
+    "utf8"
+  );
+
+  assert.match(contents, /--youtube-create-playlist/);
+  assert.match(contents, /--youtube-new-playlist-title/);
+  assert.match(contents, /--youtube-new-playlist-description/);
+  assert.match(contents, /--youtube-new-playlist-privacy/);
+  assert.match(contents, /youtubeCreatePlaylist:\s*false/);
+});

@@ -26,6 +26,34 @@ async function createYouTubeClient(options) {
   return google.youtube({ version: "v3", auth });
 }
 
+async function createPlaylistOnYouTube(options, youtubeClient = null) {
+  const youtube = youtubeClient || (await createYouTubeClient(options));
+  const response = await youtube.playlists.insert({
+    part: ["snippet", "status"],
+    requestBody: {
+      snippet: {
+        title: options.youtubeNewPlaylistTitle,
+        description: options.youtubeNewPlaylistDescription || undefined,
+        defaultLanguage: options.youtubeDefaultLanguage,
+      },
+      status: {
+        privacyStatus: options.youtubeNewPlaylistPrivacy || options.youtubePrivacy,
+      },
+    },
+  });
+
+  const playlistId = response.data.id || null;
+  return {
+    playlistId,
+    title: response.data.snippet?.title || options.youtubeNewPlaylistTitle,
+    privacyStatus:
+      response.data.status?.privacyStatus ||
+      options.youtubeNewPlaylistPrivacy ||
+      options.youtubePrivacy,
+    url: playlistId ? `https://www.youtube.com/playlist?list=${playlistId}` : null,
+  };
+}
+
 async function rebuildGroupDescriptionOnYouTube(group, options, youtubeClient = null) {
   const videoId = group.youtubeUpload?.videoId;
   if (!videoId) {
@@ -149,7 +177,17 @@ async function authorizeYouTube(options) {
   try {
     const tokenContents = await fsp.readFile(options.youtubeTokenPath, "utf8");
     oauth2Client.setCredentials(JSON.parse(tokenContents));
-    return oauth2Client;
+    try {
+      await oauth2Client.getAccessToken();
+      return oauth2Client;
+    } catch (error) {
+      if (!isInvalidGrantError(error)) {
+        throw error;
+      }
+
+      console.log("Stored YouTube token is no longer valid. Reauthorizing...");
+      await fsp.rm(options.youtubeTokenPath, { force: true });
+    }
   } catch (error) {
     if (error && error.code !== "ENOENT") {
       throw error;
@@ -160,6 +198,17 @@ async function authorizeYouTube(options) {
   await fsp.writeFile(options.youtubeTokenPath, `${JSON.stringify(token, null, 2)}\n`, "utf8");
   oauth2Client.setCredentials(token);
   return oauth2Client;
+}
+
+function isInvalidGrantError(error) {
+  const message = String(error?.message || "");
+  const code = String(error?.code || "");
+  const responseData = JSON.stringify(error?.response?.data || {});
+  return (
+    message.includes("invalid_grant") ||
+    code === "invalid_grant" ||
+    responseData.includes("invalid_grant")
+  );
 }
 
 async function getNewToken(clientShape, options) {
@@ -420,6 +469,7 @@ async function createLoopbackCallbackServer() {
 
 module.exports = {
   buildSnippetForTest: buildSnippet,
+  createPlaylistOnYouTube,
   createYouTubeClient,
   rebuildGroupDescriptionOnYouTube,
   uploadGroupToYouTube,

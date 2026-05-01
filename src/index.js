@@ -11,7 +11,7 @@ const { loadGeocodeCache, reverseGeocode } = require("./geocode");
 const { buildExportFileName, groupByDay, inferDayTitle, inferNarrative } = require("./grouping");
 const { exportMergedVideo, inspectExportedVideo, readMediaMetadata, selectExportClips, shutdownExiftool } = require("./media");
 const { buildClipCaption, createProgressTracker, ensureDir, formatBytesToGb, formatBytesToMb, formatDateKey, formatSecondsAsClock, readJsonIfExists, relativeTo, writeJson } = require("./utils");
-const { createYouTubeClient, rebuildGroupDescriptionOnYouTube, uploadGroupToYouTube } = require("./youtube");
+const { createPlaylistOnYouTube, createYouTubeClient, rebuildGroupDescriptionOnYouTube, uploadGroupToYouTube } = require("./youtube");
 
 async function main() {
   const cli = parseCli(process.argv.slice(2));
@@ -35,9 +35,22 @@ async function main() {
   let youtubeClient = null;
   if (cli.options.youtubeUpload || cli.options.youtubeRebuildDescriptions) {
     await resolveInteractiveYouTubeOptions(cli.options, {
-      requirePlaylistId: cli.options.youtubeUpload,
+      requirePlaylistId: cli.options.youtubeUpload && !cli.options.youtubeCreatePlaylist,
     });
     youtubeClient = await createYouTubeClient(cli.options);
+    if (cli.options.youtubeUpload && cli.options.youtubeCreatePlaylist) {
+      try {
+        const playlist = await createPlaylistOnYouTube(cli.options, youtubeClient);
+        cli.options.youtubePlaylistId = playlist.playlistId || "";
+        console.log(`Created YouTube playlist: ${playlist.url}`);
+      } catch (error) {
+        if (!isQuotaExceededError(error)) {
+          throw error;
+        }
+        console.log("YouTube quota exhausted, resume tomorrow.");
+        return;
+      }
+    }
   }
 
   if (cli.options.youtubeRebuildDescriptions) {
@@ -80,6 +93,7 @@ async function main() {
     discoveredDates,
     geocodeState,
   });
+  report.skippedFiles = groups.skippedFiles || [];
   if (groups.length === 0) {
     return;
   }
@@ -87,6 +101,7 @@ async function main() {
     label: "days",
     total: groups.length,
   });
+  let quotaExhausted = false;
 
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
     const group = groups[groupIndex];
@@ -116,16 +131,12 @@ async function main() {
       })),
     };
 
-    const conflictDecision = await resolveExistingProcessingConflict({
+    const conflictDecision = await resolveProcessingReuseDecision({
       report,
       reportGroup,
       outputPath,
+      inputItems: group.items,
     });
-
-    if (conflictDecision === "cancel") {
-      console.log(`Cancelling processing at ${title} by user request.`);
-      break;
-    }
 
     if (conflictDecision === "skip") {
       console.log(`Skipping ${title} because it was already processed before.`);
@@ -161,15 +172,28 @@ async function main() {
       if (youtubeClient) {
         console.log(`Uploading ${title} to YouTube`);
         console.log(`[upload ${group.dateKey}] [------------------------] 0/1 (0.0%) elapsed 00:00:00 ETA 00:00:00 Starting upload`);
-        reportGroup.youtubeUpload = await uploadGroupToYouTube(reportGroup, cli.options, youtubeClient);
-        console.log(`[upload ${group.dateKey}] [########################] 1/1 (100.0%) elapsed 00:00:00 ETA 00:00:00 Upload complete`);
-        if (reportGroup.youtubeUpload?.url) {
-          console.log(`YouTube video URL: ${reportGroup.youtubeUpload.url}`);
+        try {
+          reportGroup.youtubeUpload = await uploadGroupToYouTube(reportGroup, cli.options, youtubeClient);
+          console.log(`[upload ${group.dateKey}] [########################] 1/1 (100.0%) elapsed 00:00:00 ETA 00:00:00 Upload complete`);
+          if (reportGroup.youtubeUpload?.url) {
+            console.log(`YouTube video URL: ${reportGroup.youtubeUpload.url}`);
+          }
+          if (cli.options.youtubeDeleteAfterUpload) {
+            await deleteLocalExportAfterUpload(reportGroup);
+          }
+          console.log(`Finished YouTube upload for ${title}`);
+        } catch (error) {
+          if (!isQuotaExceededError(error)) {
+            throw error;
+          }
+          quotaExhausted = true;
+          reportGroup.youtubeUpload = {
+            date: reportGroup.date,
+            skipped: true,
+            reason: "quotaExceeded",
+          };
+          console.log("YouTube quota exhausted, resume tomorrow.");
         }
-        if (cli.options.youtubeDeleteAfterUpload) {
-          await deleteLocalExportAfterUpload(reportGroup);
-        }
-        console.log(`Finished YouTube upload for ${title}`);
       }
     } else {
       console.log(`Skipping ${title}: no video clips longer than 2 seconds.`);
@@ -180,18 +204,39 @@ async function main() {
     report.lastRun = {
       sourceFolders: resolvedFolders,
       youtubeUploadRequested: cli.options.youtubeUpload,
+      quotaExhausted,
       timeframe,
     };
     await writeJson(reportPath, report);
     dayProgress.update(groupIndex + 1, `Finished ${title}`);
+
+    if (quotaExhausted) {
+      break;
+    }
   }
 
   await writeJson(reportPath, report);
   if (cli.options.youtubePlaylistId) {
     console.log(`YouTube playlist: ${buildPlaylistUrl(cli.options.youtubePlaylistId)}`);
   }
+  if (quotaExhausted) {
+    console.log(`Quota exhausted. Progress was saved to ${reportPath}. Resume tomorrow.`);
+    return;
+  }
   console.log(`Done. Wrote exports and report to ${exportDir}`);
   playCompletionSound();
+}
+
+function isQuotaExceededError(error) {
+  const message = String(error?.message || "");
+  const code = String(error?.code || "");
+  const responseData = JSON.stringify(error?.response?.data || {});
+  return (
+    message.includes("quotaExceeded") ||
+    message.includes("exceeded your quota") ||
+    code === "quotaExceeded" ||
+    responseData.includes("quotaExceeded")
+  );
 }
 
 async function scanAndBuildGroups({ resolvedFolders, timeframe, discoveredDates, geocodeState }) {
@@ -212,20 +257,29 @@ async function scanAndBuildGroups({ resolvedFolders, timeframe, discoveredDates,
   });
 
   const metadataItems = [];
+  const skippedFiles = [];
   for (let index = 0; index < mediaFiles.length; index += 1) {
     const filePath = mediaFiles[index];
-    const item = await readMediaMetadata(filePath);
-    if (item.gps) {
-      try {
-        item.place = await reverseGeocode(item.gps.latitude, item.gps.longitude, geocodeState);
-      } catch (error) {
+    try {
+      const item = await readMediaMetadata(filePath);
+      if (item.gps) {
+        try {
+          item.place = await reverseGeocode(item.gps.latitude, item.gps.longitude, geocodeState);
+        } catch (error) {
+          item.place = null;
+          console.warn(`Geocoding failed for ${filePath}: ${error.message}`);
+        }
+      } else {
         item.place = null;
-        console.warn(`Geocoding failed for ${filePath}: ${error.message}`);
       }
-    } else {
-      item.place = null;
+      metadataItems.push(item);
+    } catch (error) {
+      skippedFiles.push({
+        path: filePath,
+        error: error.message,
+      });
+      console.warn(`Skipping unreadable media file ${filePath}: ${error.message}`);
     }
-    metadataItems.push(item);
     metadataProgress.update(index + 1, path.basename(filePath));
   }
 
@@ -238,16 +292,25 @@ async function scanAndBuildGroups({ resolvedFolders, timeframe, discoveredDates,
     return [];
   }
 
-  return groupByDay(filteredMetadataItems);
+  const groups = groupByDay(filteredMetadataItems);
+  if (skippedFiles.length > 0) {
+    console.log(`Skipped ${skippedFiles.length} unreadable media file(s).`);
+  }
+  groups.skippedFiles = skippedFiles;
+  return groups;
 }
 
 function parseCli(argv) {
   const options = {
     youtubeUpload: false,
     youtubeDeleteAfterUpload: false,
+    youtubeCreatePlaylist: false,
     youtubeOpenBrowser: true,
     youtubePrivacy: "private",
     youtubePlaylistId: "",
+    youtubeNewPlaylistTitle: "",
+    youtubeNewPlaylistDescription: "",
+    youtubeNewPlaylistPrivacy: "",
     youtubeCategoryId: "22",
     youtubeTags: [],
     youtubeDefaultLanguage: "pt-BR",
@@ -273,6 +336,10 @@ function parseCli(argv) {
     }
     if (argument === "--youtube-delete-after-upload") {
       options.youtubeDeleteAfterUpload = true;
+      continue;
+    }
+    if (argument === "--youtube-create-playlist") {
+      options.youtubeCreatePlaylist = true;
       continue;
     }
     if (argument === "--youtube-rebuild-descriptions") {
@@ -313,6 +380,16 @@ function parseCli(argv) {
         break;
       case "--youtube-playlist-id":
         options.youtubePlaylistId = value || "";
+        break;
+      case "--youtube-new-playlist-title":
+        options.youtubeNewPlaylistTitle = value || "";
+        break;
+      case "--youtube-new-playlist-description":
+        options.youtubeNewPlaylistDescription = value || "";
+        break;
+      case "--youtube-new-playlist-privacy":
+        assertPrivacy(value);
+        options.youtubeNewPlaylistPrivacy = value;
         break;
       case "--youtube-tags":
         options.youtubeTags = value
@@ -371,8 +448,17 @@ async function resolveInteractiveYouTubeOptions(options, settings = {}) {
     options.youtubePlaylistId = answer.trim();
   }
 
+  if (options.youtubeCreatePlaylist && !options.youtubeNewPlaylistTitle) {
+    const answer = await askQuestion("Title for the new YouTube playlist: ");
+    options.youtubeNewPlaylistTitle = answer.trim();
+  }
+
   if (requirePlaylistId && !options.youtubePlaylistId) {
     throw new Error("A YouTube playlist ID is required for upload in interactive mode.");
+  }
+
+  if (options.youtubeCreatePlaylist && !options.youtubeNewPlaylistTitle) {
+    throw new Error("A title is required to create a new YouTube playlist.");
   }
 }
 
@@ -637,21 +723,35 @@ function buildChaptersFromClips(clips) {
   });
 }
 
-async function resolveExistingProcessingConflict({ report, reportGroup, outputPath }) {
+async function resolveProcessingReuseDecision({ report, reportGroup, outputPath, inputItems }) {
+  const inputPaths = new Set(inputItems.map((item) => item.path));
+  const matchingGroups = (report.groups || []).filter((group) =>
+    Array.isArray(group.files) && group.files.some((file) => inputPaths.has(file.path))
+  );
+  const processedPaths = new Set(
+    matchingGroups.flatMap((group) => (group.files || []).map((file) => file.path))
+  );
+  const overlapCount = [...inputPaths].filter((filePath) => processedPaths.has(filePath)).length;
+
   const existingGroup = report.groups.find((group) => group.date === reportGroup.date);
   const existingPaths = [existingGroup?.exportPath, outputPath].filter(Boolean);
   const hasExistingFile = await anyFileExists(existingPaths);
 
-  if (!existingGroup || !hasExistingFile) {
-    return "overwrite";
+  if (overlapCount === 0 && !existingGroup && !hasExistingFile) {
+    return "reprocess";
   }
 
-  const existingTitle = existingGroup.title || reportGroup.title;
-  const existingPath = existingGroup.exportPath || outputPath;
+  const existingTitle = existingGroup?.title || reportGroup.title;
+  const existingPath = existingGroup?.exportPath || outputPath;
+  const overlapDetails =
+    overlapCount > 0
+      ? `${overlapCount}/${inputPaths.size} source file(s) were already processed before.`
+      : "This day already has a previous export/report entry.";
   const message = [
-    `I found that ${existingTitle} was already processed before.`,
+    `I found that ${existingTitle} may have been processed before.`,
+    overlapDetails,
     `Existing export file: ${existingPath}`,
-    "Choose what to do: skip, overwrite, or cancel",
+    "Choose what to do: skip or reprocess",
   ].join("\n");
 
   if (!process.stdin.isTTY) {
@@ -662,10 +762,10 @@ async function resolveExistingProcessingConflict({ report, reportGroup, outputPa
 
   while (true) {
     const answer = (await askQuestion(`${message}\nYour choice: `)).trim().toLowerCase();
-    if (["skip", "overwrite", "cancel"].includes(answer)) {
+    if (["skip", "reprocess"].includes(answer)) {
       return answer;
     }
-    console.log("Please answer with one of: skip, overwrite, cancel");
+    console.log("Please answer with one of: skip, reprocess");
   }
 }
 

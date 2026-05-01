@@ -108,10 +108,26 @@ node src/index.js "/path/to/folder" \
   --youtube-playlist-id=PLxxxxxxxxxxxxxxxx
 ```
 
+To create a new YouTube playlist on demand and upload into it in the same run:
+
+```bash
+node src/index.js "/path/to/folder" \
+  --youtube-upload \
+  --youtube-create-playlist \
+  --youtube-new-playlist-title="Summer Trip 2025" \
+  --youtube-new-playlist-description="Daily merged exports from the trip" \
+  --youtube-new-playlist-privacy=private \
+  --youtube-credentials=./secrets/client_secret.json
+```
+
 Useful YouTube flags:
 
 - `--youtube-upload`
 - `--youtube-delete-after-upload`
+- `--youtube-create-playlist`
+- `--youtube-new-playlist-title=Your playlist title`
+- `--youtube-new-playlist-description=Optional description`
+- `--youtube-new-playlist-privacy=public|private|unlisted`
 - `--youtube-rebuild-descriptions`
 - `--youtube-credentials=/path/to/client_secret.json`
 - `--youtube-token=/path/to/.youtube-upload-token.json`
