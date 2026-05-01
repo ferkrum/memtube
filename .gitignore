@@ -1,0 +1,13 @@
+node_modules/
+
+.DS_Store
+
+client_secret.json
+.youtube-upload-token.json
+
+tmp/
+
+export_to_youtube/
+.geocode-cache.json
+
+input_folder_test/
